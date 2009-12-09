@@ -4,10 +4,7 @@ from System.Net import WebClient
 from Misuzilla.Applications.TwitterIrcGateway import Status, Statuses, User, Users, Utility
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn, DLRBasicConfiguration, DLRContextHelper
 
-username = "your bit.ly username"
-apikey = "your bit.ly apikey"
-
-re_shorten = re.compile(r"<shortUrl>(.+)</shortUrl>")
+re_shorten = re.compile(r"<span.*id=\"short_url\">(.+)</span>")
 re_url = re.compile(r"s?https?://[-_.!~*'()a-zA-Z0-9;/?:@&=+$,%#]+")
 
 def OnPreSendUpdateStatus(sender, e):
@@ -21,7 +18,7 @@ def OnPreSendUpdateStatus(sender, e):
 		pass
 
 def ShortenUrl(long_url):
-	request_url = "http://api.bit.ly/shorten?version=2.0.1&format=xml&longUrl=%s&login=%s&apiKey=%s" % (Utility.UrlEncode(long_url), username, apikey)
+	request_url = "http://bit.ly/?url=%s" % (Utility.UrlEncode(long_url))
 	client = WebClient()
 	response = client.DownloadString(request_url)
 	return re_shorten.search(response).group(1)
