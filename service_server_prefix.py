@@ -4,8 +4,8 @@ from System import Uri
 from System.Net import CredentialCache, NetworkCredential
 from System.Reflection import FieldInfo, BindingFlags
 
-domain = "http://msrprx.appspot.com"
-prefix = "http://msrprx.appspot.com/api"
+prefix = "http://msrprx.appspot.com"
+path = "/api"
 
 def _get(instance, name):
         type = instance.GetType()
@@ -21,8 +21,8 @@ username = CurrentSession.Connections[0].UserInfo.UserName
 password = CurrentSession.Connections[0].UserInfo.Password
 
 credential = _get(CurrentSession.TwitterService, "_credential")
-credential.Remove(Uri(domain), "Basic")
-credential.Add(Uri(domain), "Basic", NetworkCredential(username, password))
+credential.Remove(Uri(prefix), "Basic")
+credential.Add(Uri(prefix), "Basic", NetworkCredential(username, password))
 _set(CurrentSession.TwitterService, "_credential", credential)
 
-CurrentSession.TwitterService.ServiceServerPrefix = prefix
+CurrentSession.TwitterService.ServiceServerPrefix = prefix + path
