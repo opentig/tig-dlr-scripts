@@ -11,8 +11,8 @@ def OnPreSendMessageTimelineStatus(sender, e):
     e.Text = e.Text + " (from "+ re_source.sub("", e.Status.Source) +")"
 
 def OnBeforeUnload(sender, e):
-    Session.PreSendMessageTimelineStatus -= OnPreSendMessageTimelineStatus
+    CurrentSession.PreSendMessageTimelineStatus -= OnPreSendMessageTimelineStatus
 
-Session.PreSendMessageTimelineStatus += OnPreSendMessageTimelineStatus
+CurrentSession.PreSendMessageTimelineStatus += OnPreSendMessageTimelineStatus
 CurrentSession.AddInManager.GetAddIn(DLRIntegrationAddIn).BeforeUnload += OnBeforeUnload
 
