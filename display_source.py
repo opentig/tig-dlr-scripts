@@ -1,9 +1,5 @@
-import sys
-import clr
 import re
-
-#from System.Windows.Forms import *
-from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn, DLRBasicConfiguration, DLRContextHelper
+from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
 
 re_source = re.compile(r"<.*?>")
 
@@ -15,4 +11,3 @@ def OnBeforeUnload(sender, e):
 
 CurrentSession.PreSendMessageTimelineStatus += OnPreSendMessageTimelineStatus
 CurrentSession.AddInManager.GetAddIn(DLRIntegrationAddIn).BeforeUnload += OnBeforeUnload
-
