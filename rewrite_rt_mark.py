@@ -1,3 +1,4 @@
+# http://twitterircgateway.g.hatena.ne.jp/retlet/20100514/1273811857
 import re
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
 
