@@ -4,7 +4,7 @@ from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIn
 re_source = re.compile(r"<.*?>")
 
 def OnPreSendMessageTimelineStatus(sender, e):
-    e.Text = e.Text + " (from "+ re_source.sub("", e.Status.Source) +")"
+    e.Text = e.Text + " (via "+ re_source.sub("", e.Status.Source) +")"
 
 def OnBeforeUnload(sender, e):
     CurrentSession.PreSendMessageTimelineStatus -= OnPreSendMessageTimelineStatus

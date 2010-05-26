@@ -7,19 +7,23 @@ from System.Text import Encoding
 from System.IO import StringReader
 from System.Net import WebClient, WebException
 from Misuzilla.Applications.TwitterIrcGateway import NilClasses, Status, Statuses, User, Users
-from Misuzilla.Applications.TwitterIrcGateway.AddIns import TypableMapSupport
+from Misuzilla.Applications.TwitterIrcGateway.AddIns import TypableMapSupport, ShortenUrlService
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
+
+class TypableMapError(Exception):
+	pass
 
 class TypableMap(object):
 	@classmethod
 	def instance(cls):
-		if not hasattr(cls, '__instance__'):
-			cls.__instance__ = TypableMap()
-		return cls.__instance__
+		if not hasattr(cls, '__instance'):
+			cls.__instance = TypableMap()
+		return cls.__instance
 
 	def __init__(self):
 		CurrentSession.AddInManager.GetAddIn[DLRIntegrationAddIn]().BeforeUnload += self.on_before_unload
 		self.typablemap_commands = CurrentSession.AddInManager.GetAddIn[TypableMapSupport]().TypableMapCommands
+		self.shorten_url_service = CurrentSession.AddInManager.GetAddIn[ShortenUrlService]()
 		self.registered_commands = []
 		self.register_methods()
 
@@ -32,15 +36,19 @@ class TypableMap(object):
 		self.registered_commands.append(command)
 		self.typablemap_commands.AddCommand(command, desc, proc)
 	
-	def apply_typablemap(self, status):
-		if CurrentSession.Config.EnableTypableMap:
-			id = self.typablemap_commands.TypableMap.Add(status)
-			if CurrentSession.Config.TypableMapKeyColorNumber < 0:
-				status.Text = '%s (%s)' % (status.Text, id)
-			else:
-				status.Text = '%s %c%s(%s)' % (status.Text, chr(0x03), CurrentSession.Config.TypableMapKeyColorNumber, id)
+	def apply_typablemap(self, status, text=None):
+		if text == None:
+			text = status.Text
 
-		return status
+		if CurrentSession.Config.EnableTypableMap:
+			cno = CurrentSession.Config.TypableMapKeyColorNumber
+			id = self.typablemap_commands.TypableMap.Add(status)
+			if cno < 0:
+				text += ' (%s)' % (id)
+			else:
+				text += ' %c%d(%s)%c' % (chr(0x03), cno, id, chr(0x03))
+
+		return text
 
 	@classmethod
 	def send_notice(cls, receiver, nick, content):
@@ -58,7 +66,7 @@ class TypableMap(object):
 
 	@classmethod
 	def post(cls, url, data=''):
-		return CurrentSession.TwitterService.POST(url, Encoding.UTF8.GetBytes(data))
+		return CurrentSession.TwitterService.POST(url, data)
 
 	@classmethod
 	def get(cls, url):
@@ -73,14 +81,43 @@ class TypableMap(object):
 
 	def register_methods(self):
 		# 公式 RT する
-		def retweet(p, msg, status, args):
+		def retweet(p, msg, _status, args):
 			def command():
-				retweeted = self.deserialize(Status, self.post('/statuses/retweet/%s.xml' % status.Id))
-				retweeted = self.apply_typablemap(retweeted)
-				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'ユーザ %s のステータス "%s" を Retweet しました。' % (status.User.ScreenName, retweeted.Text))
+				status = self.deserialize(Status, self.post('/statuses/retweet/%d.xml' % _status.Id))
+				retweeted = status.RetweetedStatus
+				text = self.apply_typablemap(status, text=retweeted.Text)
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'ユーザ %s のステータス "%s" を RT しました。' % (retweeted.User.ScreenName, text))
 
-			def error():
-				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: Retweet に失敗しました。')
+			def error(e):
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: RT に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
+
+			self.run_check(msg, command, error)
+			return True
+
+		# 非公式 RT する
+		def unofficial_retweet(p, msg, status, args):
+			def command():
+				comment = ''
+				if args != None and len(args) > 0:
+					comment = '%s ' % args
+
+				target = ''
+				if True:
+					target = '@%s ' % status.User.ScreenName
+
+				url = 'http://twitter.com/%s/status/%s' % (status.User.ScreenName, status.Id)
+				if self.shorten_url_service != None:
+					url = self.shorten_url_service.ShortenUrl(url, self.shorten_url_service.Timeout)
+
+				update_text = '%sRT: %s%s' % (comment, target, url)
+				update_status = CurrentSession.UpdateStatus(update_text)
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, update_text)
+				CurrentSession.UpdateStatusWithReceiverDeferred(msg.Receiver, update_text)
+
+			def error(e):
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: 非公式 RT に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
 
 			self.run_check(msg, command, error)
 			return True
@@ -90,7 +127,12 @@ class TypableMap(object):
 			def command():
 				empty = False
 				try:
-					body = WebClient().DownloadString('http://search.twitter.com/search/thread/%s' % status.Id)
+					client = WebClient()
+					client.Encoding = Encoding.UTF8
+					client.Headers['Accept'] = 'text/html'
+					client.Headers['User-Agent'] = 'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0)'
+
+					body = client.DownloadString('http://search.twitter.com/search/thread/%d' % status.Id)
 					divs = re.findall(r'<div class="msg">(.*?)</div>', body, re.S)
 					if len(divs) > 0:
 						for div in divs:
@@ -100,15 +142,18 @@ class TypableMap(object):
 							self.send_notice(msg.Receiver, name, text)
 					else:
 						empty = True
-				except:
-					# 404とかなんだけどなにでキャッチすればいいのか
-					empty = True
+				except WebException, e:
+					if e.Response.StatusCode == 404:
+						empty = True
+					else:
+						raise
 				finally:
 					if empty:
 						self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: 会話が存在しません。')
 
-			def error():
+			def error(e):
 				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: 会話の取得に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
 
 			self.run_check(msg, command, error)
 			return True
@@ -118,7 +163,8 @@ class TypableMap(object):
 			def inner(p, msg, _status, args):
 				def command():
 					def has_reply_to_status_id(s):
-						return s.InReplyToStatusId != None and len(s.InReplyToStatusId) > 0
+						id = s.InReplyToStatusId
+						return id != None and len(id) > 0
 
 					status = _status
 					if not has_reply_to_status_id(status):
@@ -127,9 +173,9 @@ class TypableMap(object):
 						statuses = []
 						try:
 							while True:
-								reply_to_status = self.deserialize(Status, self.get('/statuses/show/%s.xml' % status.InReplyToStatusId))
-								reply_to_status = self.apply_typablemap(reply_to_status)
-								statuses.append(reply_to_status)
+								reply_to_status = self.deserialize(Status, self.get('/statuses/show/%d.xml' % int(status.InReplyToStatusId)))
+								text = self.apply_typablemap(reply_to_status)
+								statuses.append((reply_to_status, text))
 								if not recursive or not has_reply_to_status_id(reply_to_status):
 									break
 								else:
@@ -137,11 +183,12 @@ class TypableMap(object):
 						finally:
 							# 逆順で流す
 							statuses.reverse()
-							for s in statuses:
-								self.send_notice(msg.Receiver, s.User.ScreenName, s.Text)
+							for status, text in statuses:
+								self.send_notice(msg.Receiver, status.User.ScreenName, text)
 
-				def error():
+				def error(e):
 					self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: 返信先のステータスの取得に失敗しました。')
+					self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
 
 				self.run_check(msg, command, error)
 				return True
@@ -152,22 +199,24 @@ class TypableMap(object):
 		def show_timeline(p, msg, status, args):
 			def command():
 				count = 5 if String.IsNullOrEmpty(args) else int(args)
-				statuses = self.deserialize(Statuses, self.get('/statuses/user_timeline.xml?user_id=%s&max_id=%s&count=%s' % (status.User.Id, status.Id, count)))
+				statuses = self.deserialize(Statuses, self.get('/statuses/user_timeline.xml?user_id=%d&max_id=%d&count=%d' % (status.User.Id, status.Id, count)))
 				statuses = list(statuses.Status)
 
 				statuses.reverse()
 				for s in statuses:
-					s = self.apply_typablemap(s)
-					self.send_notice(msg.Receiver, s.User.ScreenName, s.Text)
+					text = self.apply_typablemap(s)
+					self.send_notice(msg.Receiver, s.User.ScreenName, text)
 
-			def error():
+			def error(e):
 				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: タイムラインの取得に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
 
 			self.run_check(msg, command, error)
 			return True
 
 		# register typablemap commands
 		self.register('rt', 'Retweet command', retweet)
+		self.register('mrt', 'Unofficial retweet command', unofficial_retweet)
 		self.register('cv', 'Show conversation command', show_conversation)
 		self.register('res', 'Show reply to status command', show_reply_to_status())
 		self.register('rres', 'Show recursive reply to status command', show_reply_to_status(True))
