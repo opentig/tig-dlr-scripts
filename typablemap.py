@@ -25,7 +25,7 @@ class TypableMap(object):
 		self.typablemap_commands = CurrentSession.AddInManager.GetAddIn[TypableMapSupport]().TypableMapCommands
 		self.shorten_url_service = CurrentSession.AddInManager.GetAddIn[ShortenUrlService]()
 		self.registered_commands = []
-		self.register_methods()
+		self.register_commands()
 
 	def on_before_unload(self, sender, e):
 		for command in self.registered_commands:
@@ -37,7 +37,7 @@ class TypableMap(object):
 		self.typablemap_commands.AddCommand(command, desc, proc)
 	
 	def apply_typablemap(self, status, text=None):
-		if text == None:
+		if text is None:
 			text = status.Text
 
 		if CurrentSession.Config.EnableTypableMap:
@@ -79,7 +79,7 @@ class TypableMap(object):
 		else:
 			return type.Serializer.Deserialize(StringReader(xml))
 
-	def register_methods(self):
+	def register_commands(self):
 		# 公式 RT する
 		def retweet(p, msg, _status, args):
 			def command():
@@ -99,7 +99,7 @@ class TypableMap(object):
 		def unofficial_retweet(p, msg, status, args):
 			def command():
 				comment = ''
-				if args != None and len(args) > 0:
+				if args is not None and len(args) > 0:
 					comment = '%s ' % args
 
 				target = ''
@@ -107,7 +107,7 @@ class TypableMap(object):
 					target = '@%s ' % status.User.ScreenName
 
 				url = 'http://twitter.com/%s/status/%s' % (status.User.ScreenName, status.Id)
-				if self.shorten_url_service != None:
+				if self.shorten_url_service is not None:
 					url = self.shorten_url_service.ShortenUrl(url, self.shorten_url_service.Timeout)
 
 				update_text = '%sRT: %s%s' % (comment, target, url)
@@ -144,6 +144,7 @@ class TypableMap(object):
 						empty = True
 				except WebException, e:
 					if e.Response.StatusCode == 404:
+						# クロールされていないかプロテクトか
 						empty = True
 					else:
 						raise
@@ -164,7 +165,7 @@ class TypableMap(object):
 				def command():
 					def has_reply_to_status_id(s):
 						id = s.InReplyToStatusId
-						return id != None and len(id) > 0
+						return id is not None and len(id) > 0
 
 					status = _status
 					if not has_reply_to_status_id(status):
@@ -178,8 +179,7 @@ class TypableMap(object):
 								statuses.append((reply_to_status, text))
 								if not recursive or not has_reply_to_status_id(reply_to_status):
 									break
-								else:
-									status = reply_to_status
+								status = reply_to_status
 						finally:
 							# 逆順で流す
 							statuses.reverse()
