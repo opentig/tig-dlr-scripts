@@ -50,6 +50,14 @@ class TypableMap(object):
 
 		return text
 
+	def shorten_url(self, url):
+		if self.shorten_url_service is not None:
+			# デフォルトの1000ミリ秒だと割とタイムアウトするので
+			#timeout = self.shorten_url_service.Timeout
+			timeout = 10 * 1000
+			url = self.shorten_url_service.ShortenUrl(url, timeout)
+		return url
+
 	@classmethod
 	def send_notice(cls, receiver, nick, content):
 		CurrentSession.SendChannelMessage(receiver, nick, content, True, False, False, True)
@@ -98,26 +106,19 @@ class TypableMap(object):
 		# 非公式 RT する
 		def unofficial_retweet(p, msg, status, args):
 			def command():
-				comment = ''
-				if args is not None and len(args) > 0:
-					comment = '%s ' % args
+				# ユーザ名を含めるか
+				include_user = False
 
-				target = ''
-				if True:
-					target = '@%s ' % status.User.ScreenName
+				text = '%s ' % args if args is not None and len(args) > 0 else ''
+				user = ' @%s' % status.User.ScreenName if include_user else ''
+				url = self.shorten_url('http://twitter.com/%s/status/%s' % (status.User.ScreenName, status.Id))
 
-				url = 'http://twitter.com/%s/status/%s' % (status.User.ScreenName, status.Id)
-				if self.shorten_url_service is not None:
-					url = self.shorten_url_service.ShortenUrl(url, self.shorten_url_service.Timeout)
-
-				update_text = '%sRT: %s%s' % (comment, target, url)
-				update_status = CurrentSession.UpdateStatus(update_text)
+				update_text = '%sRT%s: %s' % (text, user, url)
 				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, update_text)
 				CurrentSession.UpdateStatusWithReceiverDeferred(msg.Receiver, update_text)
 
 			def error(e):
-				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: 非公式 RT に失敗しました。')
-				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
+				pass
 
 			self.run_check(msg, command, error)
 			return True
