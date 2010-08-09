@@ -86,9 +86,17 @@ class TypableMap(object):
 			return None
 		else:
 			return type.Serializer.Deserialize(StringReader(xml))
+	
+	@classmethod
+	def get_status(cls, id):
+		return cls.deserialize(Status, cls.get('/statuses/show.xml?id=%d' % id))
+
+	@classmethod
+	def get_user(cls, user_id):
+		return cls.deserialize(User, cls.get('/users/show.xml?user_id=%d' % user_id))
 
 	def register_commands(self):
-		# 公式 RT する
+		# 公式 RT します。
 		def retweet(p, msg, _status, args):
 			def command():
 				status = self.deserialize(Status, self.post('/statuses/retweet/%d.xml' % _status.Id))
@@ -103,7 +111,7 @@ class TypableMap(object):
 			self.run_check(msg, command, error)
 			return True
 
-		# 非公式 RT する
+		# 非公式 RT します。
 		def unofficial_retweet(p, msg, status, args):
 			def command():
 				# ユーザ名を含めるか
@@ -123,7 +131,50 @@ class TypableMap(object):
 			self.run_check(msg, command, error)
 			return True
 
-		# search.twitter.com の Show Conversation を表示する
+		# ブロックします。
+		def block(p, msg, status, args):
+			def command():
+				user = self.deserialize(User, self.post('/blocks/create.xml', 'user_id=%d' % status.User.Id))
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'ユーザ %s をブロックしました。' % (user.ScreenName))
+
+			def error(e):
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: ブロックに失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
+
+			self.run_check(msg, command, error)
+			return True
+
+		# スパム報告します。
+		def report_spam(p, msg, status, args):
+			def command():
+				user = self.deserialize(User, self.post('/report_spam.xml', 'user_id=%d' % status.User.Id))
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'ユーザ %s をスパム報告しました。' % (user.ScreenName))
+
+			def error(e):
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: スパム報告に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
+
+			self.run_check(msg, command, error)
+			return True
+
+		# ユーザ情報を表示します。
+		def show_user(p, msg, status, args):
+			def command():
+				user = self.get_user(status.User.Id)
+				keys = ['Id', 'ScreenName', 'Name', 'Location', 'Url', 'Description', 'Protected']
+				for key in keys:
+					value = unicode(getattr(user, key))
+					if value and len(value) > 0:
+						self.send_notice(msg.Receiver, CurrentSession.CurrentNick, '%s: %s' % (key, value))
+
+			def error(e):
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, 'エラー: ユーザ情報の取得に失敗しました。')
+				self.send_notice(msg.Receiver, CurrentSession.CurrentNick, e.Message)
+
+			self.run_check(msg, command, error)
+			return True
+
+		# search.twitter.com の Show Conversation を表示します。
 		def show_conversation(p, msg, status, args):
 			def command():
 				empty = False
@@ -160,7 +211,7 @@ class TypableMap(object):
 			self.run_check(msg, command, error)
 			return True
 
-		# 返信を表示する
+		# 返信を表示します。
 		def show_reply_to_status(recursive=False):
 			def inner(p, msg, _status, args):
 				def command():
@@ -175,7 +226,7 @@ class TypableMap(object):
 						statuses = []
 						try:
 							while True:
-								reply_to_status = self.deserialize(Status, self.get('/statuses/show/%d.xml' % int(status.InReplyToStatusId)))
+								reply_to_status = self.get_status(int(status.InReplyToStatusId))
 								text = self.apply_typablemap(reply_to_status)
 								statuses.append((reply_to_status, text))
 								if not recursive or not has_reply_to_status_id(reply_to_status):
@@ -196,7 +247,7 @@ class TypableMap(object):
 
 			return inner
 
-		# タイムラインを表示する
+		# タイムラインを表示します。
 		def show_timeline(p, msg, status, args):
 			def command():
 				count = 5 if String.IsNullOrEmpty(args) else int(args)
@@ -218,6 +269,9 @@ class TypableMap(object):
 		# register typablemap commands
 		self.register('rt', 'Retweet command', retweet)
 		self.register('mrt', 'Unofficial retweet command', unofficial_retweet)
+		self.register('block', 'Block command', block)
+		self.register('spam', 'Report spam command', report_spam)
+		self.register('user', 'Show user command', show_user)
 		self.register('cv', 'Show conversation command', show_conversation)
 		self.register('res', 'Show reply to status command', show_reply_to_status())
 		self.register('rres', 'Show recursive reply to status command', show_reply_to_status(True))
