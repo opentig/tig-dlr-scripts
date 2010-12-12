@@ -5,7 +5,10 @@ from System.IO import StringReader
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
 from Misuzilla.Applications.TwitterIrcGateway import NilClasses, Status, Statuses, User, Users, Utility
 
-# MEMO: ファイル名とかいじって最後に読み込まれるようにしないとうまく動かないと思います。
+''' 
+ファイル名とかいじって最後に読み込まれるようにしないとうまく動かないと思います。
+RES_PREFIX とか RES_FORMAT あたりを自分の好みに書き換えるといいかもしれません。
+'''
 
 # utils {{{
 class Utils(object):
