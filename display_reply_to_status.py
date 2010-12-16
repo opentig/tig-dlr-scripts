@@ -5,121 +5,155 @@ from System.IO import StringReader
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
 from Misuzilla.Applications.TwitterIrcGateway import NilClasses, Status, Statuses, User, Users, Utility
 
-''' 
-ファイル名とかいじって最後に読み込まれるようにしないとうまく動かないと思います。
-RES_PREFIX とか RES_FORMAT あたりを自分の好みに書き換えるといいかもしれません。
-'''
+# settings {{{
+RES_PREFIX = ' '
+RES_FORMAT = '>> %(screen_name)s: %(text)s'
+RES_COLOR = None # see: http://www.mirc.co.uk/help/colors.html
+LRU_TIMEOUT = 10 * 60
+LRU_INTERVAL = LRU_TIMEOUT
+# }}}
 
-# utils {{{
-class Utils(object):
+class Cache(object): # {{{
+    LRU_INTERVAL = 10 * 60
+
+    def __init__(self, lru_interval=LRU_INTERVAL):
+        self._cache = {}
+        self._lru_interval = lru_interval
+        self._lru_time = DateTime.Now.AddSeconds(self._lru_interval)
+
     @classmethod
-    def urlencode(cls, **params):
+    def is_expired(cls, dt, now=None):
+        if now is None:
+            now = DateTime.Now
+        if dt:
+            return DateTime.Now >= dt
+        else:
+            return False
+
+    def _lru(self):
+        now = DateTime.Now
+        if self.is_expired(self._lru_time, now):
+            for (k, v) in self._cache.items():
+                if self.is_expired(v['expire'], now):
+                    del self._cache[k]
+            self._lru_time = now.AddSeconds(self._lru_interval)
+
+    def set(self, key, value, timeout=None):
+        now = DateTime.Now
+        self._cache[key] = {
+                'value': value,
+                'expire': DateTime.Now.AddSeconds(timeout) if timeout else None,
+            }
+
+    def get(self, key):
+        entry = self._cache.get(key, None)
+        if entry is None:
+            return None
+        elif self.is_expired(entry['expire']):
+            return None
+        else:
+            return entry['value']
+# }}}
+
+class StatusCache(Cache): # {{{
+
+    @classmethod
+    def _urlencode(cls, params):
         def escape(x):
-            return Utility.UrlEncode(str(x))
-        return '&'.join(['%s=%s' % (escape(k), escape(v)) for k, v in params.iteritems()])
+            return Utility.UrlEncode(unicode(x))
+        return '&'.join(['%s=%s' % (escape(k), escape(v)) for (k, v) in params.items()])
 
     @classmethod
-    def get(cls, url, **params):
-        ''' 指定した URL に GET リクエストを発行します '''
-        query = cls.urlencode(**params)
-        if query:
-            url += '?' + query
-        return CurrentSession.TwitterService.GET(url)
+    def _request(cls, method, url, **params):
+        query = cls._urlencode(params)
+        if method == 'GET':
+            if query:
+                url += '?' + query
+            return CurrentSession.TwitterService.GET(url)
+        else:
+            return CurrentSession.TwitterService.POST(url, query)
 
     @classmethod
-    def post(cls, url, **params):
-        ''' 指定した URL に POST リクエストを発行します '''
-        query = cls.urlencode(**params)
-        return CurrentSession.TwitterService.POST(url, query)
-
-    @classmethod
-    def deserialize(cls, type, xml):
-        ''' 指定した型で XML のデシリアライズを行ないます '''
+    def _deserialize(cls, type, xml):
         if NilClasses.CanDeserialize(xml):
             raise DeserializeFailedError
         else:
             return type.Serializer.Deserialize(StringReader(xml))
 
     @classmethod
-    def get_status(cls, id):
-        ''' ID からステータスを取得します '''
-        return cls.deserialize(Status, cls.get('/statuses/show.xml', id=id))
+    def _get_status(cls, id):
+        return cls._deserialize(Status, cls._request('GET', '/statuses/show.xml', id=id))
+
+    def set(self, status, timeout=None):
+        Cache.set(self, status.Id, status, timeout=timeout)
+
+    def get(self, id, timeout=None):
+        self._lru()
+        if id is None:
+            return None
+
+        status = Cache.get(self, id)
+        status = None
+        if status is None:
+            status = self._get_status(id)
+            self.set(status, timeout=timeout)
+        return status
 # }}}
 
-class DisplayReplyToStatus(object):
-
-    RES_PREFIX = '\r\n    '
-    RES_FORMAT = '>> %(screen_name)s: %(text)s'
-    RES_COLOR = None # see: http://www.mirc.co.uk/help/colors.html
-    LRU_TIMEOUT = 1 * 60 * 60
-    LRU_INTERVAL = LRU_TIMEOUT
-
-    def __init__(self):
+class DisplayReplyToStatus(object): # {{{
+    def __init__(self, cache, timeout, prefix, fmt, color):
         CurrentSession.PreSendMessageTimelineStatus += self.on_pre_send_message_timeline_status
         CurrentSession.AddInManager.GetAddIn(DLRIntegrationAddIn).BeforeUnload += self.on_before_unload
-        self.cache = {}
-        self.last_lru_time = DateTime.Now
-
-    @classmethod
-    def is_expired(cls, new, old, timeout):
-        return (new - old).TotalSeconds >= timeout
+        self.cache = cache
+        self.timeout = timeout
+        self.prefix = prefix
+        self.fmt = fmt
+        self.color = color
 
     @classmethod
     def colored(cls, text, color):
         if color is not None:
             return '%c%d%s%c' % (chr(0x03), color, text, chr(0x03))
         else:
-            return text
+            return '%c%s' % (chr(0x03), text)
 
-    def lru(self):
-        now = DateTime.Now
-        if not self.is_expired(now, self.last_lru_time, self.LRU_INTERVAL):
-            return
-
-        for key in self.cache:
-            entry = self.cache[key]
-            if self.is_expired(now, entry['expire'], self.LRU_TIMEOUT):
-                del self.cache[key]
-
-        last_lru_time = now
-
-    def get_reply_to_status(self, status):
-        self.lru()
-
+    @classmethod
+    def get_res_id(cls, status):
         res_id = status.InReplyToStatusId
         if not res_id:
             return None
+        return int(res_id)
 
-        res_id = int(res_id)
-        res_status = None
-        now = DateTime.Now
-
-        if res_id in self.cache:
-            entry = self.cache[res_id]
-            if self.is_expired(now, entry['expire'], self.LRU_TIMEOUT):
-                del self.cache[res_id]
-            else:
-                res_status = entry['status']
-                entry['expire'] = DateTime.Now
-
-        if res_status is None:
-            res_status = Utils.get_status(res_id)
-            cached_status = {
-                    'screen_name': res_status.User.ScreenName,
-                    'text': res_status.Text,
-                }
-            self.cache[res_id] = {'status': cached_status, 'expire': now}
-            return cached_status
+    @classmethod
+    def status_to_dict(cls, status):
+        return {
+            'id': status.Id,
+            'created_at': status.CreatedAt,
+            'text': status.Text,
+            'user_id': status.User.Id,
+            'name': status.User.Name,
+            'screen_name': status.User.ScreenName,
+        }
 
     def on_pre_send_message_timeline_status(self, sender, e):
-        res_status = self.get_reply_to_status(e.Status)
-        if res_status:
-            e.Text = '%s%s%s' % (e.Text, self.RES_PREFIX, self.colored(self.RES_FORMAT % res_status, self.RES_COLOR))
+        try:
+            status = e.Status
+            self.cache.set(status, self.timeout)
+
+            res_id = self.get_res_id(status)
+            res_status = self.cache.get(res_id, self.timeout)
+            if res_status:
+                colored_text = self.colored(self.fmt % self.status_to_dict(res_status), self.color)
+                e.Text = '%s%s%s' % (e.Text, self.prefix, colored_text)
+        except Exception, e:
+            e.Text += ' (%s)' % unicode(e)
 
     def on_before_unload(self, sender, e):
         CurrentSession.PreSendMessageTimelineStatus -= self.on_pre_send_message_timeline_status
+# }}}
 
-
-# instance
-DisplayReplyToStatus()
+# instantiate {{{
+cache = StatusCache(lru_interval=LRU_INTERVAL)
+instance = DisplayReplyToStatus(cache, LRU_TIMEOUT, RES_PREFIX, RES_FORMAT, RES_COLOR)
+# }}}
 
