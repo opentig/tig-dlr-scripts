@@ -14,9 +14,9 @@ LRU_INTERVAL = LRU_TIMEOUT
 # }}}
 
 class Cache(object): # {{{
-    LRU_INTERVAL = 10 * 60
+    DEFAULT_LRU_INTERVAL = 10 * 60
 
-    def __init__(self, lru_interval=LRU_INTERVAL):
+    def __init__(self, lru_interval=DEFAULT_LRU_INTERVAL):
         self._cache = {}
         self._lru_interval = lru_interval
         self._lru_time = DateTime.Now.AddSeconds(self._lru_interval)
@@ -30,19 +30,32 @@ class Cache(object): # {{{
         else:
             return False
 
+    @classmethod
+    def _expire(cls, timeout=None, now=None):
+        if now is None:
+            now = DateTime.Now
+        if timeout is None:
+            return None
+        else:
+            return now.AddSeconds(timeout)
+
     def _lru(self):
         now = DateTime.Now
         if self.is_expired(self._lru_time, now):
             for (k, v) in self._cache.items():
                 if self.is_expired(v['expire'], now):
-                    del self._cache[k]
-            self._lru_time = now.AddSeconds(self._lru_interval)
+                    self._del(k)
+            self._lru_time = self._expire(self._lru_interval, now=now)
+
+    def _del(self, key):
+        return self._cache.pop(key, None)
 
     def set(self, key, value, timeout=None):
         now = DateTime.Now
         self._cache[key] = {
                 'value': value,
-                'expire': DateTime.Now.AddSeconds(timeout) if timeout else None,
+                'timeout': timeout,
+                'expire': self._expire(timeout),
             }
 
     def get(self, key):
@@ -50,9 +63,12 @@ class Cache(object): # {{{
         if entry is None:
             return None
         elif self.is_expired(entry['expire']):
+            self._del(key)
             return None
         else:
+            entry['expire'] = self._expire(entry['timeout'])
             return entry['value']
+
 # }}}
 
 class StatusCache(Cache): # {{{
