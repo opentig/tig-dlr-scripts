@@ -156,6 +156,9 @@ class DisplayReplyToStatus(object): # {{{
             status = e.Status
             self.cache.set(status, self.timeout)
 
+            if CurrentSession.TwitterUser.ScreenName == status.User.ScreenName:
+                return # 自分の発言は除外
+
             res_id = self.get_res_id(status)
             res_status = self.cache.get(res_id, self.timeout)
             if res_status:
