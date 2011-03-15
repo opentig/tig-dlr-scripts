@@ -109,7 +109,6 @@ class StatusCache(Cache): # {{{
             return None
 
         status = Cache.get(self, id)
-        status = None
         if status is None:
             status = self._get_status(id)
             self.set(status, timeout=timeout)
