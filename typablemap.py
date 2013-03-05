@@ -15,7 +15,6 @@ from Newtonsoft.Json import JsonConvert
 # exceptions {{{1
 class TypableMapError(Exception): pass
 class DeserializeFailedError(Exception): pass
-# }}}
 
 # helpers {{{
 def urlencode(params):
@@ -31,7 +30,7 @@ def request(method, path, fmt='json', **params):
             url += '?' + query
         return CurrentSession.TwitterService.GETv1_1(url, path)
     else:
-        return CurrentSession.TwitterService.POSTv_1_1(url, query, path)
+        return CurrentSession.TwitterService.POSTv1_1(url, query, path)
 
 def deserialize(type, data):
     return JsonConvert.DeserializeObject[type].Overloads[String](data)
@@ -41,7 +40,6 @@ def get_status(id):
 
 def get_user(id):
     return deserialize(User, request('GET', '/users/show', user_id=id))
-#}}}
 
 # bases {{{1
 class TypableMapCommand(object): # {{{2

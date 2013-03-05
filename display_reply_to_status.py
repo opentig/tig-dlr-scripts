@@ -28,7 +28,7 @@ def request(method, path, fmt='json', **params):
             url += '?' + query
         return CurrentSession.TwitterService.GETv1_1(url, path)
     else:
-        return CurrentSession.TwitterService.POSTv_1_1(url, query, path)
+        return CurrentSession.TwitterService.POSTv1_1(url, query, path)
 
 def deserialize(type, data):
     return JsonConvert.DeserializeObject[type](data)
