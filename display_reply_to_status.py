@@ -3,7 +3,8 @@
 from System import DateTime
 from System.IO import StringReader
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
-from Misuzilla.Applications.TwitterIrcGateway import NilClasses, Status, Statuses, User, Users, Utility
+from Misuzilla.Applications.TwitterIrcGateway import Status, Utility
+from Newtonsoft.Json import JsonConvert
 
 # settings {{{
 RES_PREFIX = ' '
@@ -12,6 +13,26 @@ RES_COLOR = None # see: http://www.mirc.co.uk/help/colors.html
 LRU_TIMEOUT = 10 * 60
 LRU_INTERVAL = LRU_TIMEOUT
 # }}}
+
+# helpers {{{
+def urlencode(params):
+    def escape(x):
+        return Utility.UrlEncode(unicode(x))
+    return '&'.join(['%s=%s' % (escape(k), escape(v)) for (k, v) in params.items()])
+
+def request(method, path, fmt='json', **params):
+    query = urlencode(params)
+    url = '%s.%s' % (path, fmt)
+    if method == 'GET':
+        if query:
+            url += '?' + query
+        return CurrentSession.TwitterService.GETv1_1(url, path)
+    else:
+        return CurrentSession.TwitterService.POSTv_1_1(url, query, path)
+
+def deserialize(type, data):
+    return JsonConvert.DeserializeObject[type](data)
+#}}}
 
 class Cache(object): # {{{
     DEFAULT_LRU_INTERVAL = 10 * 60
@@ -72,33 +93,9 @@ class Cache(object): # {{{
 # }}}
 
 class StatusCache(Cache): # {{{
-
-    @classmethod
-    def _urlencode(cls, params):
-        def escape(x):
-            return Utility.UrlEncode(unicode(x))
-        return '&'.join(['%s=%s' % (escape(k), escape(v)) for (k, v) in params.items()])
-
-    @classmethod
-    def _request(cls, method, url, **params):
-        query = cls._urlencode(params)
-        if method == 'GET':
-            if query:
-                url += '?' + query
-            return CurrentSession.TwitterService.GET(url)
-        else:
-            return CurrentSession.TwitterService.POST(url, query)
-
-    @classmethod
-    def _deserialize(cls, type, xml):
-        if NilClasses.CanDeserialize(xml):
-            raise DeserializeFailedError
-        else:
-            return type.Serializer.Deserialize(StringReader(xml))
-
     @classmethod
     def _get_status(cls, id):
-        return cls._deserialize(Status, cls._request('GET', '/statuses/show.xml', id=id))
+        return deserialize(Status, request('GET', '/statuses/show', id=id))
 
     def set(self, status, timeout=None):
         Cache.set(self, status.Id, status, timeout=timeout)

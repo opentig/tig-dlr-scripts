@@ -5,15 +5,43 @@ import sys
 import re
 from System import String
 from System.Text import Encoding
-from System.IO import StringReader
 from System.Net import WebClient, WebException
-from Misuzilla.Applications.TwitterIrcGateway import NilClasses, Status, Statuses, User, Users, Utility
+from System.Collections.Generic import List
+from Misuzilla.Applications.TwitterIrcGateway import Status, User, Utility
 from Misuzilla.Applications.TwitterIrcGateway.AddIns import TypableMapSupport, ShortenUrlService
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
+from Newtonsoft.Json import JsonConvert
 
 # exceptions {{{1
 class TypableMapError(Exception): pass
 class DeserializeFailedError(Exception): pass
+# }}}
+
+# helpers {{{
+def urlencode(params):
+    def escape(x):
+        return Utility.UrlEncode(unicode(x))
+    return '&'.join(['%s=%s' % (escape(k), escape(v)) for (k, v) in params.items()])
+
+def request(method, path, fmt='json', **params):
+    query = urlencode(params)
+    url = '%s.%s' % (path, fmt)
+    if method == 'GET':
+        if query:
+            url += '?' + query
+        return CurrentSession.TwitterService.GETv1_1(url, path)
+    else:
+        return CurrentSession.TwitterService.POSTv_1_1(url, query, path)
+
+def deserialize(type, data):
+    return JsonConvert.DeserializeObject[type].Overloads[String](data)
+
+def get_status(id):
+    return deserialize(Status, request('GET', '/statuses/show', id=id))
+
+def get_user(id):
+    return deserialize(User, request('GET', '/users/show', user_id=id))
+#}}}
 
 # bases {{{1
 class TypableMapCommand(object): # {{{2
@@ -23,44 +51,6 @@ class TypableMapCommand(object): # {{{2
         self.msg = msg
         self.status = status
         self.args = args
-
-    @classmethod
-    def urlencode(cls, **params):
-        def escape(x):
-            return Utility.UrlEncode(str(x))
-        return '&'.join(['%s=%s' % (escape(k), escape(v)) for k, v in params.iteritems()])
-
-    @classmethod
-    def get(cls, url, **params):
-        ''' 指定した URL に GET リクエストを発行します '''
-        query = cls.urlencode(**params)
-        if query:
-            url += '?' + query
-        return CurrentSession.TwitterService.GET(url)
-
-    @classmethod
-    def post(cls, url, **params):
-        ''' 指定した URL に POST リクエストを発行します '''
-        query = cls.urlencode(**params)
-        return CurrentSession.TwitterService.POST(url, query)
-
-    @classmethod
-    def deserialize(cls, type, xml):
-        ''' 指定した型で XML のデシリアライズを行ないます '''
-        if NilClasses.CanDeserialize(xml):
-            raise DeserializeFailedError
-        else:
-            return type.Serializer.Deserialize(StringReader(xml))
-
-    @classmethod
-    def get_status(cls, id):
-        ''' ID からステータスを取得します '''
-        return cls.deserialize(Status, cls.get('/statuses/show.xml', id=id))
-
-    @classmethod
-    def get_user(cls, user_id):
-        ''' ID からユーザーを取得します '''
-        return cls.deserialize(User, cls.get('/users/show.xml', user_id=user_id))
 
     def update(self, text, receiver=None, in_reply_to_id=None):
         ''' Twitter のステータスを更新します '''
@@ -152,7 +142,7 @@ class TypableMapCommandManager(object): # {{{2
 class ShowUserInfoCommand(TypableMapCommand): # {{{2
     ''' ユーザ情報を表示します '''
     def process(self):
-        user = self.get_user(self.status.User.Id)
+        user = get_user(self.status.User.Id)
         keys = ['Id', 'ScreenName', 'Name', 'Location', 'Url', 'Description', 'Protected']
         for key in keys:
             if hasattr(user, key):
@@ -218,7 +208,7 @@ class ShowReplyToStatusCommand(TypableMapCommand): # {{{2
             statuses = []
             try:
                 while True:
-                    reply_to_status = self.get_status(int(status.InReplyToStatusId))
+                    reply_to_status = get_status(int(status.InReplyToStatusId))
                     text = self.apply_typablemap(reply_to_status)
                     statuses.append((reply_to_status, text))
                     if not self.recursive or not self.has_reply_to_status_id(reply_to_status):
@@ -248,12 +238,12 @@ class ShowUserTimelineCommand(TypableMapCommand): # {{{2
 
     def process(self):
         count = int(self.args) if self.args else self.count
-        statuses = self.deserialize(Statuses, self.get('/statuses/user_timeline.xml',
+        statuses = deserialize(List[Status], request('GET', '/statuses/user_timeline',
             user_id=self.status.User.Id,
             max_id=self.status.Id,
             count=count))
 
-        for status in reversed(list(statuses.Status)):
+        for status in reversed(list(statuses)):
             text = self.apply_typablemap(status)
             text = '%s: %s' % (status.CreatedAt.ToString('HH:mm'), text)
             self.notice(text, nick=status.User.ScreenName)
@@ -265,7 +255,7 @@ class ShowUserTimelineCommand(TypableMapCommand): # {{{2
 class RetweetCommand(TypableMapCommand): # {{{2
     ''' 公式 RT を行ないます '''
     def process(self):
-        status = self.deserialize(Status, self.post('/statuses/retweet/%d.xml' % self.status.Id))
+        status = deserialize(Status, request('POST', '/statuses/retweet', id=self.status.Id))
         retweeted = status.RetweetedStatus
         self.notice('ユーザ %s のステータス "%s" を RT しました。' % (retweeted.User.ScreenName, retweeted.Text))
 
@@ -290,7 +280,7 @@ class UnofficialRetweetCommand(TypableMapCommand): # {{{2
 
 class BlockCommand(TypableMapCommand): # {{{2
     def process(self):
-        user = self.deserialize(User, self.post('/blocks/create.xml', user_id=self.status.User.Id))
+        user = deserialize(User, request('POST', '/blocks/create', user_id=self.status.User.Id))
         self.notice('ユーザ %s をブロックしました。' % (user.ScreenName))
 
     def error(self, e):
@@ -299,7 +289,7 @@ class BlockCommand(TypableMapCommand): # {{{2
 
 class ReportSpamCommand(TypableMapCommand): # {{{2
     def process(self):
-        user = self.deserialize(User, self.post('/report_spam.xml', user_id=self.status.User.Id))
+        user = deserialize(User, request('POST', '/users/report_spam', user_id=self.status.User.Id))
         self.notice('ユーザ %s をスパム報告しました。' % (user.ScreenName))
 
     def error(self, e):
