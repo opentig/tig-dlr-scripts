@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from System import DateTime
+import sys
+from System import String, DateTime
 from System.IO import StringReader
 from Misuzilla.Applications.TwitterIrcGateway.AddIns.DLRIntegration import DLRIntegrationAddIn
 from Misuzilla.Applications.TwitterIrcGateway import Status, Utility
@@ -31,7 +32,7 @@ def request(method, path, fmt='json', **params):
         return CurrentSession.TwitterService.POSTv1_1(url, query, path)
 
 def deserialize(type, data):
-    return JsonConvert.DeserializeObject[type](data)
+    return JsonConvert.DeserializeObject[type].Overloads[String](data)
 #}}}
 
 class Cache(object): # {{{
@@ -107,8 +108,11 @@ class StatusCache(Cache): # {{{
 
         status = Cache.get(self, id)
         if status is None:
-            status = self._get_status(id)
-            self.set(status, timeout=timeout)
+            try:
+                status = self._get_status(id)
+                self.set(status, timeout=timeout)
+            except:
+                pass
         return status
 # }}}
 
