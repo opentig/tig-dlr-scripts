@@ -22,15 +22,17 @@ def urlencode(params):
         return Utility.UrlEncode(unicode(x))
     return '&'.join(['%s=%s' % (escape(k), escape(v)) for (k, v) in params.items()])
 
-def request(method, path, fmt='json', **params):
+def request(method, path, endpoint=None, fmt='json', **params):
+    if endpoint is None:
+        endpoint = path
     query = urlencode(params)
     url = '%s.%s' % (path, fmt)
     if method == 'GET':
         if query:
             url += '?' + query
-        return CurrentSession.TwitterService.GETv1_1(url, path)
+        return CurrentSession.TwitterService.GETv1_1(url, endpoint)
     else:
-        return CurrentSession.TwitterService.POSTv1_1(url, query, path)
+        return CurrentSession.TwitterService.POSTv1_1(url, query, endpoint)
 
 def deserialize(type, data):
     return JsonConvert.DeserializeObject[type].Overloads[String](data)
@@ -253,7 +255,7 @@ class ShowUserTimelineCommand(TypableMapCommand): # {{{2
 class RetweetCommand(TypableMapCommand): # {{{2
     ''' 公式 RT を行ないます '''
     def process(self):
-        status = deserialize(Status, request('POST', '/statuses/retweet', id=self.status.Id))
+        status = deserialize(Status, request('POST', '/statuses/retweet/%s' % self.status.Id, endpoint='/statuses/retweet'))
         retweeted = status.RetweetedStatus
         self.notice('ユーザ %s のステータス "%s" を RT しました。' % (retweeted.User.ScreenName, retweeted.Text))
 
