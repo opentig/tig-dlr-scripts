@@ -278,6 +278,18 @@ class UnofficialRetweetCommand(TypableMapCommand): # {{{2
         self.notice(update_text)
         self.update_deferred(update_text)
 
+class PakuriCommand(TypableMapCommand): # {{{2
+    ''' パクツイを行います '''
+    def __init__(self, manager, processor, msg, status, args):
+        TypableMapCommand.__init__(self, manager, processor, msg, status, args)
+        self.include_user = False
+
+    def process(self):
+        update_text = self.status.Text
+        self.notice(update_text)
+        self.update_deferred(update_text)
+
+
 class BlockCommand(TypableMapCommand): # {{{2
     def process(self):
         user = deserialize(User, request('POST', '/blocks/create', user_id=self.status.User.Id))
@@ -305,6 +317,7 @@ manager.register('res', 'Show reply to status command', ShowReplyToStatusCommand
 manager.register('rres', 'Show recursive reply to status command', ShowRecursiveReplyToStatusCommand)
 manager.register('rt', 'retweet command', RetweetCommand)
 manager.register('mrt', 'Unofficial retweet command', UnofficialRetweetCommand)
+manager.register('cp', 'Pakuri command', PakuriCommand)
 manager.register('block', 'Block command', BlockCommand)
 manager.register('spam', 'Report spam command', ReportSpamCommand)
 
