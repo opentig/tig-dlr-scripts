@@ -280,15 +280,10 @@ class UnofficialRetweetCommand(TypableMapCommand): # {{{2
 
 class PakuriCommand(TypableMapCommand): # {{{2
     ''' パクツイを行います '''
-    def __init__(self, manager, processor, msg, status, args):
-        TypableMapCommand.__init__(self, manager, processor, msg, status, args)
-        self.include_user = False
-
     def process(self):
         update_text = self.status.Text
         self.notice(update_text)
         self.update_deferred(update_text)
-
 
 class BlockCommand(TypableMapCommand): # {{{2
     def process(self):
